@@ -34,3 +34,8 @@ captures/
 *.DS_Store
 /.idea
 *.iml
+
+
+gradlew
+gradlew.bat
+settings.gradle
