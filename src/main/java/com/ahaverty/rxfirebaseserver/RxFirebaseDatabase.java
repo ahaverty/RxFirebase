@@ -10,8 +10,6 @@ import com.google.firebase.database.ValueEventListener;
 
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import rx.Observable;
 import rx.Subscriber;
@@ -198,6 +196,42 @@ public class RxFirebaseDatabase {
                 subscriber.add(Subscriptions.create(() -> query.removeEventListener(valueEventListener)));
             }
 
+        });
+    }
+
+
+    public static <T> Observable<LinkedHashMap<String, T>> observeSingleValuesMap(final Query query, final Class<T> clazz) {
+        return Observable.create(new Observable.OnSubscribe<LinkedHashMap<String, T>>() {
+            @Override
+            public void call(final Subscriber<? super LinkedHashMap<String, T>> subscriber) {
+                query.addListenerForSingleValueEvent(new ValueEventListener() {
+                    @Override
+                    public void onDataChange(DataSnapshot dataSnapshot) {
+                        LinkedHashMap<String, T> items = new LinkedHashMap<>();
+                        for (DataSnapshot childSnapshot : dataSnapshot.getChildren()) {
+                            T value = childSnapshot.getValue(clazz);
+                            if (value == null) {
+                                if (!subscriber.isUnsubscribed()) {
+                                    subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
+                                }
+                            } else {
+                                items.put(childSnapshot.getKey(), value);
+                            }
+                        }
+
+                        if (!subscriber.isUnsubscribed()) {
+                            subscriber.onNext(items);
+                        }
+                    }
+
+                    @Override
+                    public void onCancelled(DatabaseError error) {
+                        if (!subscriber.isUnsubscribed()) {
+                            subscriber.onError(new RxFirebaseDataException(error));
+                        }
+                    }
+                });
+            }
         });
     }
 
