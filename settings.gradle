@@ -1,1 +1,1 @@
-include ':rxfirebase', ':sample'
+rootProject.name = 'RxFirebaseServer'
