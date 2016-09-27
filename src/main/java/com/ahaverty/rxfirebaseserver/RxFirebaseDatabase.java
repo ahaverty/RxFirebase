@@ -1,41 +1,56 @@
 package com.ahaverty.rxfirebaseserver;
 
-import com.ahaverty.rxfirebaseserver.Exceptions.RxFirebaseDataCastException;
 import com.ahaverty.rxfirebaseserver.Exceptions.RxFirebaseDataException;
-import com.google.firebase.database.ChildEventListener;
-import com.google.firebase.database.DataSnapshot;
-import com.google.firebase.database.DatabaseError;
-import com.google.firebase.database.Query;
-import com.google.firebase.database.ValueEventListener;
-
-import java.util.LinkedHashMap;
-import java.util.LinkedList;
-
+import com.google.firebase.database.*;
 import rx.Observable;
 import rx.Subscriber;
+import rx.functions.Action0;
+import rx.functions.Func1;
 import rx.subscriptions.Subscriptions;
 
 public class RxFirebaseDatabase {
 
-    public static <T> Observable<T> observeSingleValue(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<T>() {
+    public static Observable<DataSnapshot> observeValueEvent(final Query query) {
+        return Observable.create(new Observable.OnSubscribe<DataSnapshot>() {
             @Override
-            public void call(final Subscriber<? super T> subscriber) {
+            public void call(final Subscriber<? super DataSnapshot> subscriber) {
+                final ValueEventListener valueEventListener = query.addValueEventListener(
+                        new ValueEventListener() {
+                            @Override
+                            public void onDataChange(DataSnapshot dataSnapshot) {
+                                if (!subscriber.isUnsubscribed()) {
+                                    subscriber.onNext(dataSnapshot);
+                                }
+                            }
+
+                            @Override
+                            public void onCancelled(final DatabaseError error) {
+                                if (!subscriber.isUnsubscribed()) {
+                                    subscriber.onError(new RxFirebaseDataException(error));
+                                }
+                            }
+                        });
+
+                subscriber.add(Subscriptions.create(new Action0() {
+                    @Override
+                    public void call() {
+                        query.removeEventListener(valueEventListener);
+                    }
+                }));
+            }
+        });
+    }
+
+
+    public static Observable<DataSnapshot> observeSingleValueEvent(final Query query) {
+        return Observable.create(new Observable.OnSubscribe<DataSnapshot>() {
+            @Override
+            public void call(final Subscriber<? super DataSnapshot> subscriber) {
                 query.addListenerForSingleValueEvent(new ValueEventListener() {
                     @Override
                     public void onDataChange(DataSnapshot dataSnapshot) {
-                        T value = dataSnapshot.getValue(clazz);
-                        if (value != null) {
-                            if (!subscriber.isUnsubscribed()) {
-                                subscriber.onNext(value);
-                            }
-                        } else {
-                            if (!subscriber.isUnsubscribed()) {
-                                subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
-                            }
-                        }
-
                         if (!subscriber.isUnsubscribed()) {
+                            subscriber.onNext(dataSnapshot);
                             subscriber.onCompleted();
                         }
                     }
@@ -51,205 +66,20 @@ public class RxFirebaseDatabase {
         });
     }
 
-    public static <T> Observable<T> observeValue(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<T>() {
+
+    public static Observable<RxFirebaseChildEvent<DataSnapshot>> observeChildEvent(
+            final Query query) {
+        return Observable.create(new Observable.OnSubscribe<RxFirebaseChildEvent<DataSnapshot>>() {
             @Override
-            public void call(final Subscriber<? super T> subscriber) {
-                final ValueEventListener valueEventListener = query.addValueEventListener(
-                        new ValueEventListener() {
-                            @Override
-                            public void onDataChange(DataSnapshot dataSnapshot) {
-                                T value = dataSnapshot.getValue(clazz);
-                                if (value != null) {
-                                    if (!subscriber.isUnsubscribed()) {
-                                        subscriber.onNext(value);
-                                    }
-                                } else {
-                                    if (!subscriber.isUnsubscribed()) {
-                                        subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
-                                    }
-                                }
-                            }
-
-                            @Override
-                            public void onCancelled(DatabaseError error) {
-                                if (!subscriber.isUnsubscribed()) {
-                                    subscriber.onError(new RxFirebaseDataException(error));
-                                }
-                            }
-                        });
-
-                subscriber.add(Subscriptions.create(() -> query.removeEventListener(valueEventListener)));
-            }
-        });
-    }
-
-
-    public static <T> Observable<T> observeValues(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<T>() {
-            @Override
-            public void call(final Subscriber<? super T> subscriber) {
-                final ValueEventListener valueEventListener = query.addValueEventListener(
-                        new ValueEventListener() {
-                            @Override
-                            public void onDataChange(DataSnapshot dataSnapshot) {
-                                for (DataSnapshot childSnapshot : dataSnapshot.getChildren()) {
-                                    T value = childSnapshot.getValue(clazz);
-                                    if (value == null) {
-                                        if (!subscriber.isUnsubscribed()) {
-                                            subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
-                                        }
-                                    } else {
-                                        if (!subscriber.isUnsubscribed()) {
-                                            subscriber.onNext(value);
-                                        }
-                                    }
-                                }
-                                if (!subscriber.isUnsubscribed()) {
-                                }
-                            }
-
-                            @Override
-                            public void onCancelled(DatabaseError error) {
-                                if (!subscriber.isUnsubscribed()) {
-                                    subscriber.onError(new RxFirebaseDataException(error));
-                                }
-                            }
-                        });
-
-                subscriber.add(Subscriptions.create(() -> query.removeEventListener(valueEventListener)));
-            }
-
-        });
-    }
-
-
-    public static <T> Observable<LinkedList<T>> observeValuesList(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<LinkedList<T>>() {
-            @Override
-            public void call(final Subscriber<? super LinkedList<T>> subscriber) {
-                final ValueEventListener valueEventListener = query.addValueEventListener(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(DataSnapshot dataSnapshot) {
-                        LinkedList<T> items = new LinkedList<>();
-                        for (DataSnapshot childSnapshot : dataSnapshot.getChildren()) {
-                            T value = childSnapshot.getValue(clazz);
-                            if (value == null) {
-                                if (!subscriber.isUnsubscribed()) {
-                                    subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
-                                }
-                            } else {
-                                items.add(value);
-                            }
-                        }
-
-                        if (!subscriber.isUnsubscribed()) {
-                            subscriber.onNext(items);
-                        }
-                    }
-
-                    @Override
-                    public void onCancelled(DatabaseError error) {
-                        if (!subscriber.isUnsubscribed()) {
-                            subscriber.onError(new RxFirebaseDataException(error));
-                        }
-                    }
-                });
-                subscriber.add(Subscriptions.create(() -> query.removeEventListener(valueEventListener)));
-            }
-
-        });
-    }
-
-
-    public static <T> Observable<LinkedHashMap<String, T>> observeValuesMap(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<LinkedHashMap<String, T>>() {
-            @Override
-            public void call(final Subscriber<? super LinkedHashMap<String, T>> subscriber) {
-                final ValueEventListener valueEventListener = query.addValueEventListener(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(DataSnapshot dataSnapshot) {
-                        LinkedHashMap<String, T> items = new LinkedHashMap<>();
-                        for (DataSnapshot childSnapshot : dataSnapshot.getChildren()) {
-                            T value = childSnapshot.getValue(clazz);
-                            if (value == null) {
-                                if (!subscriber.isUnsubscribed()) {
-                                    subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
-                                }
-                            } else {
-                                items.put(childSnapshot.getKey(), value);
-                            }
-                        }
-
-                        if (!subscriber.isUnsubscribed()) {
-                            subscriber.onNext(items);
-                        }
-                    }
-
-                    @Override
-                    public void onCancelled(DatabaseError error) {
-                        if (!subscriber.isUnsubscribed()) {
-                            subscriber.onError(new RxFirebaseDataException(error));
-                        }
-                    }
-                });
-                subscriber.add(Subscriptions.create(() -> query.removeEventListener(valueEventListener)));
-            }
-
-        });
-    }
-
-
-    public static <T> Observable<LinkedHashMap<String, T>> observeSingleValuesMap(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<LinkedHashMap<String, T>>() {
-            @Override
-            public void call(final Subscriber<? super LinkedHashMap<String, T>> subscriber) {
-                query.addListenerForSingleValueEvent(new ValueEventListener() {
-                    @Override
-                    public void onDataChange(DataSnapshot dataSnapshot) {
-                        LinkedHashMap<String, T> items = new LinkedHashMap<>();
-                        for (DataSnapshot childSnapshot : dataSnapshot.getChildren()) {
-                            T value = childSnapshot.getValue(clazz);
-                            if (value == null) {
-                                if (!subscriber.isUnsubscribed()) {
-                                    subscriber.onError(new RxFirebaseDataCastException("unable to cast firebase data response to " + clazz.getSimpleName()));
-                                }
-                            } else {
-                                items.put(childSnapshot.getKey(), value);
-                            }
-                        }
-
-                        if (!subscriber.isUnsubscribed()) {
-                            subscriber.onNext(items);
-                        }
-                    }
-
-                    @Override
-                    public void onCancelled(DatabaseError error) {
-                        if (!subscriber.isUnsubscribed()) {
-                            subscriber.onError(new RxFirebaseDataException(error));
-                        }
-                    }
-                });
-            }
-        });
-    }
-
-
-    public static <T> Observable<RxFirebaseChildEvent<T>> observeChildrenEvents(final Query query, final Class<T> clazz) {
-        return Observable.create(new Observable.OnSubscribe<RxFirebaseChildEvent<T>>() {
-            @Override
-            public void call(final Subscriber<? super RxFirebaseChildEvent<T>> subscriber) {
-                final ChildEventListener childEventListener =
-                        query.addChildEventListener(new ChildEventListener() {
+            public void call(final Subscriber<? super RxFirebaseChildEvent<DataSnapshot>> subscriber) {
+                final ChildEventListener childEventListener = query.addChildEventListener(
+                        new ChildEventListener() {
 
                             @Override
                             public void onChildAdded(DataSnapshot dataSnapshot, String previousChildName) {
                                 if (!subscriber.isUnsubscribed()) {
                                     subscriber.onNext(
-                                            new RxFirebaseChildEvent<>(dataSnapshot.getValue(clazz),
-                                                    dataSnapshot.getKey(),
-                                                    previousChildName,
+                                            new RxFirebaseChildEvent<DataSnapshot>(dataSnapshot.getKey(), dataSnapshot, previousChildName,
                                                     RxFirebaseChildEvent.EventType.ADDED));
                                 }
                             }
@@ -258,9 +88,7 @@ public class RxFirebaseDatabase {
                             public void onChildChanged(DataSnapshot dataSnapshot, String previousChildName) {
                                 if (!subscriber.isUnsubscribed()) {
                                     subscriber.onNext(
-                                            new RxFirebaseChildEvent<>(dataSnapshot.getValue(clazz),
-                                                    dataSnapshot.getKey(),
-                                                    previousChildName,
+                                            new RxFirebaseChildEvent<DataSnapshot>(dataSnapshot.getKey(), dataSnapshot, previousChildName,
                                                     RxFirebaseChildEvent.EventType.CHANGED));
                                 }
                             }
@@ -268,10 +96,8 @@ public class RxFirebaseDatabase {
                             @Override
                             public void onChildRemoved(DataSnapshot dataSnapshot) {
                                 if (!subscriber.isUnsubscribed()) {
-                                    subscriber.onNext(
-                                            new RxFirebaseChildEvent<>(dataSnapshot.getValue(clazz),
-                                                    dataSnapshot.getKey(),
-                                                    RxFirebaseChildEvent.EventType.REMOVED));
+                                    subscriber.onNext(new RxFirebaseChildEvent<DataSnapshot>(dataSnapshot.getKey(), dataSnapshot,
+                                            RxFirebaseChildEvent.EventType.REMOVED));
                                 }
                             }
 
@@ -279,9 +105,7 @@ public class RxFirebaseDatabase {
                             public void onChildMoved(DataSnapshot dataSnapshot, String previousChildName) {
                                 if (!subscriber.isUnsubscribed()) {
                                     subscriber.onNext(
-                                            new RxFirebaseChildEvent<>(dataSnapshot.getValue(clazz),
-                                                    dataSnapshot.getKey(),
-                                                    previousChildName,
+                                            new RxFirebaseChildEvent<DataSnapshot>(dataSnapshot.getKey(), dataSnapshot, previousChildName,
                                                     RxFirebaseChildEvent.EventType.MOVED));
                                 }
                             }
@@ -294,9 +118,48 @@ public class RxFirebaseDatabase {
                             }
                         });
 
-                subscriber.add(Subscriptions.create(() -> query.removeEventListener(childEventListener)));
+                subscriber.add(Subscriptions.create(new Action0() {
+                    @Override
+                    public void call() {
+                        query.removeEventListener(childEventListener);
+                    }
+                }));
             }
         });
+    }
+
+    public static <T> Observable<T> observeValueEvent(final Query query,
+                                                      final Class<T> clazz) {
+        return observeValueEvent(query, DataSnapshotMapper.of(clazz));
+    }
+
+    public static <T> Observable<T> observeSingleValueEvent(final Query query,
+                                                            final Class<T> clazz) {
+        return observeSingleValueEvent(query, DataSnapshotMapper.of(clazz));
+    }
+
+
+    public static <T> Observable<RxFirebaseChildEvent<T>> observeChildEvent(
+            final Query query, final Class<T> clazz) {
+        return observeChildEvent(query, DataSnapshotMapper.ofChildEvent(clazz));
+    }
+
+
+    public static <T> Observable<T> observeValueEvent(final Query query,
+                                                      final Func1<? super DataSnapshot, ? extends T> mapper) {
+        return observeValueEvent(query).map(mapper);
+    }
+
+
+    public static <T> Observable<T> observeSingleValueEvent(final Query query,
+                                                            final Func1<? super DataSnapshot, ? extends T> mapper) {
+        return observeSingleValueEvent(query).map(mapper);
+    }
+
+
+    public static <T> Observable<RxFirebaseChildEvent<T>> observeChildEvent(
+            final Query query, final Func1<? super RxFirebaseChildEvent<DataSnapshot>, ? extends RxFirebaseChildEvent<T>> mapper) {
+        return observeChildEvent(query).map(mapper);
     }
 
 }
